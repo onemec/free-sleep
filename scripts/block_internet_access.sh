@@ -72,6 +72,22 @@ EOF
 # Restart timesyncd to apply changes
 systemctl restart systemd-timesyncd
 
+# Enable NTP synchronization
+timedatectl set-ntp true
+
+echo "Waiting for system clock synchronization (up to 30s)..."
+for i in {1..30}; do
+  if timedatectl status | grep -q "System clock synchronized: yes"; then
+    echo "Clock synchronized!"
+    break
+  fi
+  sleep 1
+done
+
+# Sync hardware clock to system clock
+# This ensures correctly fetched time is persisted to the physical chip
+hwclock --systohc
+
 
 # Allow localhost (loopback) traffic so local apps can talk to each other
 iptables -A INPUT  -i lo -j ACCEPT
