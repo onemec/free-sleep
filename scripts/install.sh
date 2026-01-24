@@ -4,7 +4,13 @@ set -euo pipefail
 
 # --------------------------------------------------------------------------------
 # Variables
-REPO_URL="https://github.com/throwaway31265/free-sleep/archive/refs/heads/main.zip"
+FS_REPO="${FS_REPO:-onemec/free-sleep}"
+FS_BRANCH="${FS_BRANCH:-main}"
+
+# Extract repo name from FS_REPO (e.g., "free-sleep" from "onemec/free-sleep")
+REPO_NAME=$(echo "$FS_REPO" | cut -d'/' -f2)
+
+REPO_URL="https://github.com/$(echo "$FS_REPO" | sed 's/\.git$//')/archive/refs/heads/${FS_BRANCH}.zip"
 ZIP_FILE="free-sleep.zip"
 REPO_DIR="/home/dac/free-sleep"
 SERVER_DIR="$REPO_DIR/server"
@@ -12,7 +18,7 @@ USERNAME="dac"
 
 # --------------------------------------------------------------------------------
 # Download the repository
-echo "Downloading the repository..."
+echo "Downloading the repository from $REPO_URL..."
 curl -L -o "$ZIP_FILE" "$REPO_URL"
 
 echo ""
@@ -24,7 +30,14 @@ rm -f "$ZIP_FILE"
 # Clean up existing directory and move new code into place
 echo "Setting up the installation directory..."
 rm -rf "$REPO_DIR"
-mv free-sleep-main "$REPO_DIR"
+# The zip extracts to <repo_name>-<branch_name>
+# We need to find the actual directory name since branch names can contain slashes (translated to dashes)
+EXTRACTED_DIR=$(find . -maxdepth 1 -type d -name "${REPO_NAME}-*" -print -quit)
+if [ -z "$EXTRACTED_DIR" ]; then
+    echo "Error: Could not find unzipped directory ${REPO_NAME}-*"
+    exit 1
+fi
+mv "$EXTRACTED_DIR" "$REPO_DIR"
 
 
 chown -R "$USERNAME":"$USERNAME" "$REPO_DIR"
