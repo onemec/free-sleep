@@ -2,64 +2,101 @@
 
 echo "Blocking internet access..."
 
-# IPv4 Rules
-echo "Configuring IPv4 rules..."
+# -----------------------------------------------------------------------------------------------------
+# 1. Flush existing rules to avoid accumulation and deadlocks
+# -----------------------------------------------------------------------------------------------------
+echo "Flushing existing rules..."
+iptables -F
+iptables -X
+iptables -t nat -F
+iptables -t nat -X
+ip6tables -F
+ip6tables -X
+
+# Set default policies to DROP (we will explicitly allow what we need)
+iptables -P INPUT DROP
+iptables -P OUTPUT DROP
+iptables -P FORWARD DROP
+ip6tables -P INPUT DROP
+ip6tables -P OUTPUT DROP
+ip6tables -P FORWARD DROP
 
 # -----------------------------------------------------------------------------------------------------
-# Allow traffic to Sentry servers for error logging
+# 2. Basic Connectivity (Loopback & Established)
+# -----------------------------------------------------------------------------------------------------
+echo "Configuring basic connectivity..."
+# Allow local loopback
+iptables -A INPUT  -i lo -j ACCEPT
+iptables -A OUTPUT -o lo -j ACCEPT
+ip6tables -A INPUT  -i lo -j ACCEPT
+ip6tables -A OUTPUT -o lo -j ACCEPT
 
-# https://docs.sentry.io/security-legal-pii/security/ip-ranges/#event-ingestion
+# Allow established/related traffic globally
+iptables -A INPUT  -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+ip6tables -A INPUT  -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-# Check if ALLOW_SENTRY is true
-if [ "$ALLOW_SENTRY" = "false" ]; then
-  echo "ALLOW_SENTRY is not true — skipping Sentry firewall configuration."
+# Allow ICMP (ping) for diagnostics
+iptables -A INPUT  -p icmp -j ACCEPT
+iptables -A OUTPUT -p icmp -j ACCEPT
+ip6tables -A INPUT  -p ipv6-icmp -j ACCEPT
+ip6tables -A OUTPUT -p ipv6-icmp -j ACCEPT
 
-else
-  echo -e "\e[33mIP rules were setup to allow error logs to be sent to Sentry servers\e[0m"
-  echo -e "\e[33mSentry error logs will NOT be sent to Sentry unless error logging is explicitly enabled in the UI. (It's off by default)\e[0m"
-  echo -e "\e[33mIf you'd like to block Sentry servers, run: 'ALLOW_SENTRY=false sh scripts/block_internet_access.sh'\e[0m"
-  echo -e "\e[33m\e[0m"
-  # --- US IPs ---
-  iptables -C INPUT  -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
-  iptables -I INPUT  -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-  iptables -C OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null || \
-  iptables -I OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+# -----------------------------------------------------------------------------------------------------
+# 3. LAN Traffic (Allow everything on local network)
+# -----------------------------------------------------------------------------------------------------
+echo "Allowing LAN traffic..."
+# IPv4 LAN Classes
+iptables -A INPUT  -s 10.0.0.0/8     -j ACCEPT
+iptables -A OUTPUT -d 10.0.0.0/8     -j ACCEPT
+iptables -A INPUT  -s 172.16.0.0/12  -j ACCEPT
+iptables -A OUTPUT -d 172.16.0.0/12  -j ACCEPT
+iptables -A INPUT  -s 192.168.0.0/16 -j ACCEPT
+iptables -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
 
-  iptables -A OUTPUT -d 35.186.247.156 -j ACCEPT
-  iptables -A OUTPUT -d 34.120.195.249 -j ACCEPT
-  iptables -A OUTPUT -d 34.36.122.224  -j ACCEPT
-  iptables -A OUTPUT -d 34.36.87.148 -j ACCEPT
-  iptables -A OUTPUT -d 34.120.62.213 -j ACCEPT
-  iptables -A OUTPUT -d 130.211.36.74 -j ACCEPT
-  echo "Sentry error logging IP rules applied successfully."
+# IPv6 LAN (Link-local and Unique-local)
+ip6tables -A INPUT  -s fe80::/10 -j ACCEPT
+ip6tables -A OUTPUT -d fe80::/10 -j ACCEPT
+ip6tables -A INPUT  -s fd00::/8  -j ACCEPT
+ip6tables -A OUTPUT -d fd00::/8  -j ACCEPT
+
+# -----------------------------------------------------------------------------------------------------
+# 4. Critical Services (DNS & NTP)
+# -----------------------------------------------------------------------------------------------------
+echo "Allowing DNS and NTP..."
+# Allow DNS (IPv4 & IPv6)
+iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+ip6tables -A OUTPUT -p udp --dport 53 -j ACCEPT
+ip6tables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+
+# Allow NTP (IPv4 & IPv6)
+iptables -A OUTPUT -p udp --dport 123 -j ACCEPT
+ip6tables -A OUTPUT -p udp --dport 123 -j ACCEPT
+
+# -----------------------------------------------------------------------------------------------------
+# 5. Sentry Logging (Optional)
+# -----------------------------------------------------------------------------------------------------
+if [ "${ALLOW_SENTRY:-true}" != "false" ]; then
+  echo "Allowing Sentry error logging..."
+  SENTRY_IPS=("35.186.247.156" "34.120.195.249" "34.36.122.224" "34.36.87.148" "34.120.62.213" "130.211.36.74")
+  for ip in "${SENTRY_IPS[@]}"; do
+    iptables -A OUTPUT -d "$ip" -j ACCEPT
+  done
 fi
 
 # -----------------------------------------------------------------------------------------------------
+# 6. Save Rules
+# -----------------------------------------------------------------------------------------------------
+mkdir -p /etc/iptables
+iptables-save > /etc/iptables/iptables.rules
+ip6tables-save > /etc/iptables/ip6tables.rules
 
-# Allow LAN traffic Class A (10.0.0.0/8)
-iptables -A INPUT -s 10.0.0.0/8 -j ACCEPT
-iptables -A OUTPUT -d 10.0.0.0/8 -j ACCEPT
-
-# Allow LAN traffic Class B (172.16.0.0/12)
-iptables -A INPUT -s 172.16.0.0/12 -j ACCEPT
-iptables -A OUTPUT -d 172.16.0.0/12 -j ACCEPT
-
-# Allow LAN traffic Class C (192.168.0.0/16)
-iptables -A INPUT -s 192.168.0.0/16 -j ACCEPT
-iptables -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
-
-# Allow DNS traffic
-iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
-iptables -A INPUT -p udp --sport 53 -j ACCEPT
-iptables -A INPUT -p tcp --sport 53 -j ACCEPT
-
-# Allow NTP traffic - this allows us to synchronize the system time
-iptables -I OUTPUT -p udp --dport 123 -j ACCEPT
-iptables -I INPUT -p udp --sport 123 -j ACCEPT
-
-echo "Updating the timesyncd config"
-# New configuration content
+# -----------------------------------------------------------------------------------------------------
+# 7. Time Synchronization & Hardware Persistence
+# -----------------------------------------------------------------------------------------------------
+echo "Updating the timesyncd config..."
 cat > /etc/systemd/timesyncd.conf <<EOF
 [Time]
 NTP=pool.ntp.org 0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org 3.pool.ntp.org
@@ -69,10 +106,7 @@ PollIntervalMinSec=32
 PollIntervalMaxSec=2048
 EOF
 
-# Restart timesyncd to apply changes
 systemctl restart systemd-timesyncd
-
-# Enable NTP synchronization
 timedatectl set-ntp true
 
 echo "Waiting for system clock synchronization (up to 30s)..."
@@ -84,37 +118,16 @@ for i in {1..30}; do
   sleep 1
 done
 
-# Sync hardware clock to system clock
-# This ensures correctly fetched time is persisted to the physical chip
-hwclock --systohc
+# --- PERSISTENCE SAFETY CHECK ---
+# Never persist a 2010/2022 reset to the hardware clock.
+# Only update the RTC if the current system year is sane (>= 2024).
+CURRENT_YEAR=$(date +%Y)
+if [ "$CURRENT_YEAR" -ge 2024 ]; then
+  echo "System year ($CURRENT_YEAR) is valid. Persisting to hardware clock..."
+  hwclock --systohc
+else
+  echo -e "\033[0;31mWARNING: System time ($CURRENT_YEAR) is still incorrect. SKIPPING hardware clock update.\033[0m"
+fi
 
-
-# Allow localhost (loopback) traffic so local apps can talk to each other
-iptables -A INPUT  -i lo -j ACCEPT
-iptables -A OUTPUT -o lo -j ACCEPT
-
-# Block everything else
-iptables -A INPUT -j DROP
-iptables -A OUTPUT -j DROP
-
-# Save rules
-iptables-save > /etc/iptables/iptables.rules
-
-echo "Configuring IPv6 rules..."
-# Allow local traffic for IPv6
-ip6tables -A INPUT -s fe80::/10 -j ACCEPT
-ip6tables -A OUTPUT -d fe80::/10 -j ACCEPT
-ip6tables -A INPUT -s fd00::/8 -j ACCEPT
-ip6tables -A OUTPUT -d fd00::/8 -j ACCEPT
-
-# Allow NTP traffic (IPv6)
-ip6tables -I OUTPUT -p udp --dport 123 -j ACCEPT
-ip6tables -I INPUT -p udp --sport 123 -j ACCEPT
-
-# Block everything else (IPv6)
-ip6tables -A INPUT -j DROP
-ip6tables -A OUTPUT -j DROP
-ip6tables-save > /etc/iptables/ip6tables.rules
-
-echo "Blocked WAN internet access successfully!"
+echo "Firewall and time sync configuration complete!"
 
