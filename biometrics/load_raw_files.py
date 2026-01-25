@@ -115,7 +115,7 @@ def _decode_cbor_file(file_path: str, data: dict, start_time, end_time, side: Si
     load_raw_types = list(data.keys())
     checked_timespan = False
     with open(file_path, 'rb') as raw_data:
-        for row in _iter_raw_records(raw_data):
+        for row in iter_raw_records(raw_data):
             try:
                 decoded_data = cbor2.loads(row['data'])
                 if not decoded_data['type'] in load_raw_types:
