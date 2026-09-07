@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.4.0",
-    "@sentry/cli": "^2.57.0",
+    "@sentry/cli": "^3.0.0",
     "@sentry/node": "^10.22.0",
     "binary-split": "^1.0.5",
     "bree": "^9.2.0",
