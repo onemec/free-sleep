@@ -34,7 +34,7 @@
     "dotenv-cli": "^8.0.0",
     "express": "^5.1.0",
     "lodash": "^4.17.0",
-    "lowdb": "^6.1.0",
+    "lowdb": "^7.0.0",
     "moment-timezone": "^0.6.0",
     "node-schedule": "^2.1.0",
     "winston": "^3.17.0",
