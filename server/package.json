@@ -39,7 +39,7 @@
     "node-schedule": "^2.1.0",
     "winston": "^3.17.0",
     "winston-transport": "^4.9.0",
-    "zod": "^3.0.0"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.0",
